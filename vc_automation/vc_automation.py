@@ -19,6 +19,8 @@ import time
 import re
 import json
 from pathlib import Path
+from typing import Optional
+import shutil
 
 # ======================================================================
 # === GLOBAL SETUP ===
@@ -37,7 +39,6 @@ TRANSACTIONS_DIR.mkdir(parents=True, exist_ok=True)
 TIMESTAMP = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 LOG_FILE = LOGS_DIR / f"automation_{TIMESTAMP}.log"
 
-
 # ======================================================================
 # === BASIC LOGGING ===
 # ======================================================================
@@ -47,19 +48,13 @@ def log(msg: str):
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(msg + "\n")
 
-
 # ======================================================================
 # === DEPENDENCY MANAGEMENT ===
 # ======================================================================
 def ensure_requirements_and_install():
-    """
-    Detect imports, update requirements.txt, and install any missing packages.
-    Ensures psutil, colorama, web3, and requests are available.
-    """
     CORE_PKGS = ["psutil", "colorama", "web3", "requests"]
     this_script = Path(__file__).read_text(encoding="utf-8", errors="ignore")
 
-    # Extract import names
     imports = re.findall(r"^(?:from|import)\s+([a-zA-Z0-9_\.]+)", this_script, re.MULTILINE)
     required_packages = sorted(set(
         [i.split('.')[0] for i in imports if i not in ('os', 'sys', 'subprocess', 'datetime', 'time', 're', 'json', 'pathlib')]
@@ -71,7 +66,6 @@ def ensure_requirements_and_install():
 
     log(f"[+] Detected Python packages to ensure: {', '.join(required_packages)}")
 
-    # Update or create requirements.txt
     if not REQUIREMENTS_FILE.exists():
         with open(REQUIREMENTS_FILE, "w", encoding="utf-8") as f:
             for pkg in required_packages:
@@ -89,7 +83,6 @@ def ensure_requirements_and_install():
                     f.write(pkg + "\n")
             log(f"Updated requirements.txt with: {', '.join(new_pkgs)}")
 
-    # Install missing packages
     installed, already = [], []
     for pkg in required_packages:
         try:
@@ -105,12 +98,10 @@ def ensure_requirements_and_install():
     else:
         log("All required packages already installed.")
 
-
 # ======================================================================
 # === UTILITY HELPERS ===
 # ======================================================================
 def is_process_running_by_name_contains(name_fragment: str) -> bool:
-    """Check if a process containing name_fragment is running."""
     import psutil
     for proc in psutil.process_iter(attrs=["name", "cmdline"]):
         try:
@@ -120,9 +111,7 @@ def is_process_running_by_name_contains(name_fragment: str) -> bool:
             continue
     return False
 
-
 def run_command(cmd: list, cwd: Path = PROJECT_ROOT, capture: bool = True, timeout: int = 300) -> tuple:
-    """Run a subprocess command and log output. Return (returncode, stdout, stderr)."""
     log(f"$ {' '.join(cmd)}")
     try:
         proc = subprocess.run(
@@ -145,10 +134,10 @@ def run_command(cmd: list, cwd: Path = PROJECT_ROOT, capture: bool = True, timeo
         log(f"Exception running command {cmd}: {str(e)}")
         return 1, "", str(e)
 
-
-def try_find_deploy_script() -> Path:
-    """Try to locate a Deploy.s.sol script in common paths."""
+def try_find_deploy_script() -> Optional[Path]:
     candidates = [
+        PROJECT_ROOT / "backend" / "script" / "Deploy.s.sol",
+        PROJECT_ROOT / "backend" / "scripts" / "Deploy.s.sol",
         PROJECT_ROOT / "script" / "Deploy.s.sol",
         PROJECT_ROOT / "scripts" / "Deploy.s.sol"
     ]
@@ -157,12 +146,10 @@ def try_find_deploy_script() -> Path:
             return c
     return None
 
-
 # ======================================================================
 # === STAGE 1: BUILD & TEST ===
 # ======================================================================
 def stage_1_build_and_test():
-    """Clean, build, and test the project using Foundry."""
     log("=" * 70)
     log("STAGE 1: Build and test smart contracts")
     log(f"Started at {datetime.datetime.now().isoformat()}")
@@ -176,7 +163,6 @@ def stage_1_build_and_test():
 
     log("Stage 1 completed successfully.")
 
-
 # ======================================================================
 # === STAGE 2: ANVIL MANAGEMENT ===
 # ======================================================================
@@ -184,7 +170,6 @@ def stage_2_ensure_anvil(start_if_missing: bool = True,
                          anvil_port: int = 8545,
                          chain_id: int = 31337,
                          timeout_seconds: int = 30) -> None:
-    """Ensure local Anvil chain is running with proper timeout handling."""
     log("=" * 70)
     log("STAGE 2: Ensure local Anvil chain")
     log(f"Started at {datetime.datetime.now().isoformat()}")
@@ -228,15 +213,13 @@ def stage_2_ensure_anvil(start_if_missing: bool = True,
     except Exception as e:
         log(f"Failed to start Anvil: {str(e)}")
 
-
 # ======================================================================
 # === STAGE 3: DEPLOYMENT ===
 # ======================================================================
 def stage_3_deploy_and_capture(rpc_url: str = "http://127.0.0.1:8545",
                                chain_id: int = 31337,
                                dry_run: bool = False,
-                               timeout_seconds: int = 600) -> str:
-    """Deploy contracts with enhanced error handling and timeouts."""
+                               timeout_seconds: int = 600) -> Optional[str]:
     log("=" * 70)
     log("STAGE 3: Deploy contracts and capture artifacts")
     log(f"Started at {datetime.datetime.now().isoformat()}")
@@ -276,6 +259,7 @@ def stage_3_deploy_and_capture(rpc_url: str = "http://127.0.0.1:8545",
         stdout = result.stdout or ""
         stderr = result.stderr or ""
 
+        # Save raw deploy logs
         deploy_log_path = LOGS_DIR / f"deploy_raw_{TIMESTAMP}.log"
         with open(deploy_log_path, "w", encoding="utf-8") as fh:
             fh.write(stdout + "\n" + stderr)
@@ -283,20 +267,32 @@ def stage_3_deploy_and_capture(rpc_url: str = "http://127.0.0.1:8545",
         deployed_contracts = {}
         tx_hashes = []
 
+        # --- Parse lines like: DeployedContract:ContractName:0x...
         for line in stdout.splitlines():
-            if "Deployed to:" in line:
-                parts = line.strip().split("Deployed to:")
-                contract_name = parts[0].strip(" :")
-                address = parts[1].strip()
-                deployed_contracts[contract_name] = address
-            elif "Transaction hash:" in line:
-                tx_hashes.append(line.split("Transaction hash:")[1].strip())
+            # Strip ANSI codes and whitespace
+            line_clean = re.sub(r'\x1b\[[0-9;]*m', '', line).strip()
+            if line_clean.startswith("DeployedContract:"):
+                try:
+                    _, contract_name, address = line_clean.split(":")
+                    deployed_contracts[contract_name] = address
+                except ValueError:
+                    log(f"Warning: Could not parse deployment line: {line_clean}")
+            elif "Transaction hash:" in line_clean:
+                tx_hashes.append(line_clean.split("Transaction hash:")[1].strip())
 
         if deployed_contracts:
             json_path = chain_folder / f"deployment_summary_{TIMESTAMP}.json"
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(deployed_contracts, f, indent=4)
             log(f"Saved deployment summary to {json_path}")
+
+            # Print a clear summary to console
+            log("\n=== Contracts Deployed ===")
+            for name, addr in deployed_contracts.items():
+                log(f"{name:25} -> {addr}")
+            log("=========================\n")
+        else:
+            log("No deployed contracts detected. Ensure Deploy.s.sol prints 'DeployedContract:ContractName:0x...' for each contract.")
 
         if tx_hashes:
             tx_log = TRANSACTIONS_DIR / f"tx_{TIMESTAMP}.log"
@@ -317,11 +313,31 @@ def stage_3_deploy_and_capture(rpc_url: str = "http://127.0.0.1:8545",
         log(f"Unexpected error during deployment: {str(e)}")
         return None
 
+    return chain_folder
+
+# ======================================================================
+# === CLEANUP PREVIOUS DEPLOYMENTS / LOGS ===
+# ======================================================================
+def clean_previous_deployments():
+    if LOGS_DIR.exists():
+        shutil.rmtree(LOGS_DIR)
+    if DEPLOYMENTS_DIR.exists():
+        shutil.rmtree(DEPLOYMENTS_DIR)
+    if TRANSACTIONS_DIR.exists():
+        shutil.rmtree(TRANSACTIONS_DIR)
+
+    # Recreate directories
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    TRANSACTIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    log("Cleared old logs, deployments, and transaction artifacts.")
 
 # ======================================================================
 # === MAIN PIPELINE ===
 # ======================================================================
 def main():
+    clean_previous_deployments()
     log("=== VaultChain Africa Automation Bootstrap ===")
     ensure_requirements_and_install()
     stage_1_build_and_test()
@@ -329,8 +345,9 @@ def main():
     stage_3_deploy_and_capture()
     log(f"All automation stages completed. Logs stored at: {LOG_FILE}")
 
-
 if __name__ == "__main__":
     main()
 
-# to run this script use: python vc_automation/vc_automation.py
+
+
+# Usage: python vc_automation/vc_automation.py

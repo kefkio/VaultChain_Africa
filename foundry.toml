@@ -1,0 +1,35 @@
+# ===========================
+# Foundry Config - VaultChainAfrica_v1
+# ===========================
+
+[profile.default]
+src = "contracts"
+out = "out"
+libs = ["lib/"]
+
+fs_permissions = [{ access = "read-write", path = "./" }]
+optimizer = true
+optimizer_runs = 200
+ignored_error_codes = [3860]
+
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@chainlink/=lib/chainlink-contracts/"
+]
+
+[rpc_endpoints]
+mainnet = "https://eth.merkle.io"
+optimism_sepolia = "https://sepolia.optimism.io/"
+arbitrum_one_sepolia = "https://sepolia-rollup.arbitrum.io/rpc/"
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+multiline_func_header = "attributes_first"
+quote_style = "double"
+number_underscore = "preserve"
+single_line_statement_blocks = "preserve"
+ignore = ["src/console.sol", "src/console2.sol"]
