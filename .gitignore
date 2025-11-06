@@ -6,6 +6,23 @@ venv_wsl/
 *.log
 *.zip
 
-# Ignore IDE and tooling
-.vscode/
+# Forge/Hardhat builds
+out/
+cache/
+broadcast/
+
+# Virtual environment
+venv/
+
+# Python cache
 __pycache__/
+*.pyc
+
+# Logs and temp
+*.log
+*.zip
+.vscode/
+.DS_Store
+
+# Environment variables
+.env

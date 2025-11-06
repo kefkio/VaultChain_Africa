@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""
+VaultChain Africa Automation Script
+-----------------------------------
+A unified automation pipeline for:
+  • Dependency auto-detection and installation
+  • Build, clean, and test cycle
+  • Local blockchain management via Anvil
+  • Smart contract deployment and artifact capture
+
+All logs are stored under: vc_automation/logs/
+"""
+
+import os
+import sys
+import subprocess
+import datetime
+import time
+import re
+import json
+from pathlib import Path
+
+# ======================================================================
+# === GLOBAL SETUP ===
+# ======================================================================
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+VC_DIR = PROJECT_ROOT / "vc_automation"
+LOGS_DIR = VC_DIR / "logs"
+DEPLOYMENTS_DIR = VC_DIR / "deployments"
+TRANSACTIONS_DIR = VC_DIR / "transactions"
+REQUIREMENTS_FILE = PROJECT_ROOT / "requirements.txt"
+
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+DEPLOYMENTS_DIR.mkdir(parents=True, exist_ok=True)
+TRANSACTIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+TIMESTAMP = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+LOG_FILE = LOGS_DIR / f"automation_{TIMESTAMP}.log"
+
+
+# ======================================================================
+# === BASIC LOGGING ===
+# ======================================================================
+def log(msg: str):
+    """Write a message to both console and log file."""
+    print(msg)
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(msg + "\n")
+
+
+# ======================================================================
+# === DEPENDENCY MANAGEMENT ===
+# ======================================================================
+def ensure_requirements_and_install():
+    """
+    Detect imports, update requirements.txt, and install any missing packages.
+    Ensures psutil, colorama, web3, and requests are available.
+    """
+    CORE_PKGS = ["psutil", "colorama", "web3", "requests"]
+    this_script = Path(__file__).read_text(encoding="utf-8", errors="ignore")
+
+    # Extract import names
+    imports = re.findall(r"^(?:from|import)\s+([a-zA-Z0-9_\.]+)", this_script, re.MULTILINE)
+    required_packages = sorted(set(
+        [i.split('.')[0] for i in imports if i not in ('os', 'sys', 'subprocess', 'datetime', 'time', 're', 'json', 'pathlib')]
+    ))
+
+    for p in CORE_PKGS:
+        if p not in required_packages:
+            required_packages.append(p)
+
+    log(f"[+] Detected Python packages to ensure: {', '.join(required_packages)}")
+
+    # Update or create requirements.txt
+    if not REQUIREMENTS_FILE.exists():
+        with open(REQUIREMENTS_FILE, "w", encoding="utf-8") as f:
+            for pkg in required_packages:
+                f.write(pkg + "\n")
+        log("Created new requirements.txt file.")
+    else:
+        try:
+            existing = {l.strip() for l in REQUIREMENTS_FILE.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()}
+        except UnicodeDecodeError:
+            existing = set()
+        new_pkgs = [pkg for pkg in required_packages if pkg not in existing]
+        if new_pkgs:
+            with open(REQUIREMENTS_FILE, "a", encoding="utf-8") as f:
+                for pkg in new_pkgs:
+                    f.write(pkg + "\n")
+            log(f"Updated requirements.txt with: {', '.join(new_pkgs)}")
+
+    # Install missing packages
+    installed, already = [], []
+    for pkg in required_packages:
+        try:
+            __import__(pkg)
+            already.append(pkg)
+        except ImportError:
+            log(f"Installing missing package: {pkg}")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+            installed.append(pkg)
+
+    if installed:
+        log(f"Installed new packages: {', '.join(installed)}")
+    else:
+        log("All required packages already installed.")
+
+
+# ======================================================================
+# === UTILITY HELPERS ===
+# ======================================================================
+def is_process_running_by_name_contains(name_fragment: str) -> bool:
+    """Check if a process containing name_fragment is running."""
+    import psutil
+    for proc in psutil.process_iter(attrs=["name", "cmdline"]):
+        try:
+            if name_fragment.lower() in proc.info["name"].lower():
+                return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
+            continue
+    return False
+
+
+def run_command(cmd: list, cwd: Path = PROJECT_ROOT, capture: bool = True, timeout: int = 300) -> tuple:
+    """Run a subprocess command and log output. Return (returncode, stdout, stderr)."""
+    log(f"$ {' '.join(cmd)}")
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=capture,
+            text=True,
+            check=False,
+            timeout=timeout
+        )
+        if proc.stdout:
+            log(proc.stdout.strip())
+        if proc.stderr:
+            log(proc.stderr.strip())
+        return proc.returncode, proc.stdout, proc.stderr
+    except subprocess.TimeoutExpired:
+        log(f"Command timed out after {timeout} seconds: {' '.join(cmd)}")
+        return 124, "", "Timeout expired"
+    except Exception as e:
+        log(f"Exception running command {cmd}: {str(e)}")
+        return 1, "", str(e)
+
+
+def try_find_deploy_script() -> Path:
+    """Try to locate a Deploy.s.sol script in common paths."""
+    candidates = [
+        PROJECT_ROOT / "script" / "Deploy.s.sol",
+        PROJECT_ROOT / "scripts" / "Deploy.s.sol"
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+# ======================================================================
+# === STAGE 1: BUILD & TEST ===
+# ======================================================================
+def stage_1_build_and_test():
+    """Clean, build, and test the project using Foundry."""
+    log("=" * 70)
+    log("STAGE 1: Build and test smart contracts")
+    log(f"Started at {datetime.datetime.now().isoformat()}")
+    log("=" * 70)
+
+    run_command(["forge", "--version"])
+    run_command(["anvil", "--version"])
+    run_command(["forge", "clean"])
+    run_command(["forge", "build"])
+    run_command(["forge", "test", "-vv"])
+
+    log("Stage 1 completed successfully.")
+
+
+# ======================================================================
+# === STAGE 2: ANVIL MANAGEMENT ===
+# ======================================================================
+def stage_2_ensure_anvil(start_if_missing: bool = True,
+                         anvil_port: int = 8545,
+                         chain_id: int = 31337,
+                         timeout_seconds: int = 30) -> None:
+    """Ensure local Anvil chain is running with proper timeout handling."""
+    log("=" * 70)
+    log("STAGE 2: Ensure local Anvil chain")
+    log(f"Started at {datetime.datetime.now().isoformat()}")
+    log("=" * 70)
+
+    if is_process_running_by_name_contains("anvil"):
+        log("Detected running Anvil instance. Reusing it.")
+        return
+
+    if not start_if_missing:
+        log("Anvil not running and start_if_missing=False. Exiting Stage 2.")
+        return
+
+    anvil_log = LOGS_DIR / f"anvil_{TIMESTAMP}.log"
+
+    try:
+        subprocess.run(['which', 'anvil'], check=True, stdout=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        log("'anvil' executable not found in PATH. Please install Foundry or add it to PATH.")
+        return
+
+    log(f"Launching Anvil (port={anvil_port}, chain-id={chain_id})")
+
+    try:
+        proc = subprocess.Popen(
+            ["anvil", "--port", str(anvil_port), "--chain-id", str(chain_id)],
+            stdout=open(anvil_log, "w", encoding="utf-8"),
+            stderr=subprocess.STDOUT,
+            cwd=str(PROJECT_ROOT)
+        )
+
+        start_time = time.time()
+        while not is_process_running_by_name_contains("anvil"):
+            if time.time() - start_time > timeout_seconds:
+                log("Anvil failed to start within timeout period.")
+                proc.kill()
+                return
+            time.sleep(1)
+
+        log(f"Anvil started successfully. Log: {anvil_log}")
+    except Exception as e:
+        log(f"Failed to start Anvil: {str(e)}")
+
+
+# ======================================================================
+# === STAGE 3: DEPLOYMENT ===
+# ======================================================================
+def stage_3_deploy_and_capture(rpc_url: str = "http://127.0.0.1:8545",
+                               chain_id: int = 31337,
+                               dry_run: bool = False,
+                               timeout_seconds: int = 600) -> str:
+    """Deploy contracts with enhanced error handling and timeouts."""
+    log("=" * 70)
+    log("STAGE 3: Deploy contracts and capture artifacts")
+    log(f"Started at {datetime.datetime.now().isoformat()}")
+    log("=" * 70)
+
+    deploy_script = try_find_deploy_script()
+    if not deploy_script:
+        log("No Deploy.s.sol found. Skipping Stage 3.")
+        return None
+
+    chain_folder = DEPLOYMENTS_DIR / str(chain_id)
+    chain_folder.mkdir(parents=True, exist_ok=True)
+
+    if dry_run:
+        log("Dry-run enabled: skipping actual broadcast deployment.")
+        return None
+
+    cmd = [
+        "forge", "script", str(deploy_script),
+        "--rpc-url", rpc_url,
+        "--broadcast",
+        "--chain-id", str(chain_id)
+    ]
+
+    log(f"Executing deployment: {' '.join(cmd)}")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds
+        )
+
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+
+        deploy_log_path = LOGS_DIR / f"deploy_raw_{TIMESTAMP}.log"
+        with open(deploy_log_path, "w", encoding="utf-8") as fh:
+            fh.write(stdout + "\n" + stderr)
+
+        deployed_contracts = {}
+        tx_hashes = []
+
+        for line in stdout.splitlines():
+            if "Deployed to:" in line:
+                parts = line.strip().split("Deployed to:")
+                contract_name = parts[0].strip(" :")
+                address = parts[1].strip()
+                deployed_contracts[contract_name] = address
+            elif "Transaction hash:" in line:
+                tx_hashes.append(line.split("Transaction hash:")[1].strip())
+
+        if deployed_contracts:
+            json_path = chain_folder / f"deployment_summary_{TIMESTAMP}.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(deployed_contracts, f, indent=4)
+            log(f"Saved deployment summary to {json_path}")
+
+        if tx_hashes:
+            tx_log = TRANSACTIONS_DIR / f"tx_{TIMESTAMP}.log"
+            with open(tx_log, "w", encoding="utf-8") as f:
+                for tx in tx_hashes:
+                    f.write(tx + "\n")
+            log(f"Saved transaction hashes to {tx_log}")
+
+        log("Deployment stage completed successfully.")
+
+    except subprocess.TimeoutExpired:
+        log(f"Deployment timed out after {timeout_seconds} seconds.")
+        return None
+    except FileNotFoundError:
+        log("'forge' executable not found in PATH. Please install Foundry and try again.")
+        return None
+    except Exception as e:
+        log(f"Unexpected error during deployment: {str(e)}")
+        return None
+
+
+# ======================================================================
+# === MAIN PIPELINE ===
+# ======================================================================
+def main():
+    log("=== VaultChain Africa Automation Bootstrap ===")
+    ensure_requirements_and_install()
+    stage_1_build_and_test()
+    stage_2_ensure_anvil()
+    stage_3_deploy_and_capture()
+    log(f"All automation stages completed. Logs stored at: {LOG_FILE}")
+
+
+if __name__ == "__main__":
+    main()
+
+# to run this script use: python vc_automation/vc_automation.py
