@@ -13,9 +13,9 @@ optimizer_runs = 200
 ignored_error_codes = [3860]
 
 remappings = [
-    "forge-std/=lib/forge-std/src/",
-    "@openzeppelin/=lib/openzeppelin-contracts/",
-    "@chainlink/=lib/chainlink-contracts/"
+  "forge-std/=lib/forge-std/src/",
+  "@openzeppelin/=lib/openzeppelin-contracts/",
+  "@chainlink/=lib/chainlink-contracts/"
 ]
 
 [rpc_endpoints]

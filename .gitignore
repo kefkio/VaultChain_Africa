@@ -1,28 +1,17 @@
-# Ignore Python virtual environments
-venv/
-venv_wsl/
-
-# Ignore logs and archives
-*.log
-*.zip
-
-# Forge/Hardhat builds
-out/
+# Compiler files
 cache/
-broadcast/
+out/
 
-# Virtual environment
-venv/
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
 
-# Python cache
-__pycache__/
-*.pyc
+# Docs
+docs/
 
-# Logs and temp
-*.log
-*.zip
-.vscode/
-.DS_Store
-
-# Environment variables
+# Dotenv file
 .env
+venv_wsl/
+venv/
+venvScriptsactivate

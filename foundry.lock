@@ -1,6 +1,15 @@
 {
+  "backend/lib/forge-std": {
+    "rev": "100b0d756adda67bc70aab816fa5a1a95dcf78b6"
+  },
+  "backend/libs/forge-std": {
+    "rev": "100b0d756adda67bc70aab816fa5a1a95dcf78b6"
+  },
   "forge-std": {
     "rev": "100b0d756adda67bc70aab816fa5a1a95dcf78b6"
+  },
+  "lib/chainlink-contracts": {
+    "rev": "797e13912982bf085e8f1b42688fd1ea9b4d5180"
   },
   "lib/forge-std": {
     "tag": {

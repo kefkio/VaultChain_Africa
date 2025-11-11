@@ -1,0 +1,37 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20251105095619
+Username: DESKTOP-RUUD8RF\kefak
+RunAs User: DESKTOP-RUUD8RF\kefak
+Configuration Name: 
+Machine: DESKTOP-RUUD8RF (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -noexit -command try { . "c:\Users\kefak\AppData\Local\Programs\Microsoft VS Code\resources\app\out\vs\workbench\contrib\terminal\common\scripts\shellIntegration.ps1" } catch {}
+Process ID: 5316
+PSVersion: 5.1.26100.7019
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7019
+BuildVersion: 10.0.26100.7019
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\Users\kefak\Projects\Blockchain+Projects\VaultChainAfrica_v1\dev_onboard.log
+
+ðŸ‘¨â€ðŸ’» Developer onboarding started...
+âœ… Activating virtual environment...
+warning: in the working copy of 'dev_onboard.log', LF will be replaced by CRLF the next time Git touches it
+error: open("venv_wsl/bin/python"): Function not implemented
+error: unable to index file 'venv_wsl/bin/python'
+fatal: adding files failed
+⚠️ Git update failed. Check your repo status or remote connection.
+
+
+
+
+
+âœ… Developer onboarding complete.
+**********************
+Windows PowerShell transcript end
+End time: 20251105095627
+**********************

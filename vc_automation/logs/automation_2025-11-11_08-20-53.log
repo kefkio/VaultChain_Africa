@@ -1,0 +1,93 @@
+Cleared old logs, deployments, and transaction artifacts.
+=== VaultChain Africa Automation Bootstrap ===
+[+] Detected Python packages to ensure: shutil, typing, psutil, colorama, web3, requests
+All required packages already installed.
+======================================================================
+STAGE 1: Build and test smart contracts
+Started at 2025-11-11T08:21:02.920213
+======================================================================
+$ forge --version
+forge Version: 1.4.4-stable
+Commit SHA: 05794498bf47257b144e2e2789a1d5bf8566be0e
+Build Timestamp: 2025-11-03T23:47:37.546275200Z (1762213657)
+Build Profile: maxperf
+$ anvil --version
+anvil Version: 1.4.4-stable
+Commit SHA: 05794498bf47257b144e2e2789a1d5bf8566be0e
+Build Timestamp: 2025-11-03T23:47:37.546275200Z (1762213657)
+Build Profile: maxperf
+$ forge clean
+$ forge build
+Compiling 71 files with Solc 0.8.30
+Solc 0.8.30 finished in 571.63ms
+Error: Compiler run failed:
+Error (6160): Wrong argument count for function call: 3 arguments given but expected 0.
+  --> script/Deploy.s.sol:31:35:
+   |
+31 |         LoanManager loanManager = new LoanManager(
+   |                                   ^ (Relevant source part starts here and spans across multiple lines).
+
+Error (9553): Invalid type for argument in function call. Invalid implicit conversion from address to address payable requested.
+  --> script/Deploy.s.sol:46:5:
+   |
+46 |     address(marketplace),
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+Error (9553): Invalid type for argument in function call. Invalid implicit conversion from int_const 100 to address requested.
+  --> script/Deploy.s.sol:51:5:
+   |
+51 |     100,                                  // fee value
+   |     ^^^
+
+Error (4614): Cannot instantiate an abstract contract.
+   --> test/LoanManager.t.sol:106:22:
+    |
+106 |         membership = new MockMembership();
+    |                      ^^^^^^^^^^^^^^^^^^
+
+Error (6160): Wrong argument count for function call: 3 arguments given but expected 0.
+   --> test/LoanManager.t.sol:113:23:
+    |
+113 |         loanManager = new LoanManager(admin, operators, address(membership));
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error (9582): Member "registerMember" not found or not visible after argument-dependent lookup in contract LoanManager.
+   --> test/LoanManager.t.sol:117:9:
+    |
+117 |         loanManager.registerMember();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+$ forge test -vv
+Compiling 69 files with Solc 0.8.30
+Solc 0.8.30 finished in 537.59ms
+Error: Compiler run failed:
+Error (4614): Cannot instantiate an abstract contract.
+   --> test/LoanManager.t.sol:106:22:
+    |
+106 |         membership = new MockMembership();
+    |                      ^^^^^^^^^^^^^^^^^^
+
+Error (6160): Wrong argument count for function call: 3 arguments given but expected 0.
+   --> test/LoanManager.t.sol:113:23:
+    |
+113 |         loanManager = new LoanManager(admin, operators, address(membership));
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error (9582): Member "registerMember" not found or not visible after argument-dependent lookup in contract LoanManager.
+   --> test/LoanManager.t.sol:117:9:
+    |
+117 |         loanManager.registerMember();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+Stage 1 completed successfully.
+======================================================================
+STAGE 2: Ensure local Anvil chain
+Started at 2025-11-11T08:21:07.992912
+======================================================================
+Detected running Anvil instance. Reusing it.
+======================================================================
+STAGE 3: Deploy contracts and capture artifacts
+Started at 2025-11-11T08:21:08.011029
+======================================================================
+Executing deployment: forge script C:\Users\kefak\Projects\Blockchain+Projects\VaultChainAfrica_v1\script\Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --chain-id 31337
+No deployed contracts detected. Ensure Deploy.s.sol prints 'DeployedContract:ContractName:0x...' for each contract.
+Deployment stage completed successfully.
+All automation stages completed. Logs stored at: C:\Users\kefak\Projects\Blockchain+Projects\VaultChainAfrica_v1\vc_automation\logs\automation_2025-11-11_08-20-53.log
