@@ -36,3 +36,5 @@ if (Test-Path $summaryPath) {
 
 # --- Final Stage ---
 Write-Output "`n✅ Deployment completed. Full log stored at $logPath" | Tee-Object -FilePath $logPath -Append
+
+Set-Alias vdeploy "$PWD\vaultchain_deploy.ps1"

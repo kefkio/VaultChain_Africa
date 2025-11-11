@@ -147,6 +147,32 @@ def try_find_deploy_script() -> Optional[Path]:
     return None
 
 # ======================================================================
+# === DEPLOYMENT VIA POWERSHELL SCRIPT ===              
+# ======================================================================
+
+def run_deployment():
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = f"vc_automation/logs/deploy_trigger_{timestamp}.txt"
+
+    with open(log_path, "w") as log_file:
+        log_file.write(f"=== Deployment triggered via vc_automation.py at {timestamp} ===\n\n")
+        try:
+            result = subprocess.run(
+                ["powershell", "-ExecutionPolicy", "Bypass", "-File", "vaultchain_deploy.ps1"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+            log_file.write(result.stdout)
+        except subprocess.CalledProcessError as e:
+            log_file.write("❌ Deployment failed:\n")
+            log_file.write(e.stderr)
+            print("Deployment failed. See log for details.")
+        else:
+            print("✅ Deployment completed. See log for details.")
+
+# ======================================================================
 # === STAGE 1: BUILD & TEST ===
 # ======================================================================
 def stage_1_build_and_test():
