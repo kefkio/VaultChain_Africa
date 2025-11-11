@@ -90,12 +90,12 @@ contract LoanCore {
         emit LoanCreated(loanId, borrower, amount);
         return loanId;
     }
+    
 
     function getLoan(uint256 loanId) external view returns (Loan memory) {
         return loans[loanId];
     }
-
-    function reduceLoanAmount(uint256 loanId, uint256 amount) external {
+        function reduceLoanAmount(uint256 loanId, uint256 amount) external {
         Loan storage loan = loans[loanId];
         require(amount <= loan.loan_amount, "LoanCore: amount exceeds loan balance");
         loan.loan_amount -= amount;

@@ -10,7 +10,7 @@ A unified automation pipeline for:
 
 All logs are stored under: vc_automation/logs/
 """
-
+from web3 import Web3
 import os
 import sys
 import subprocess
@@ -333,6 +333,87 @@ def clean_previous_deployments():
 
     log("Cleared old logs, deployments, and transaction artifacts.")
 
+
+    # ======================================================================
+# === STAGE 4: POST-DEPLOY SETUP ===
+# ======================================================================
+def stage_4_post_deploy_setup(chain_folder: Path,
+                              rpc_url: str = "http://127.0.0.1:8545",
+                              admin_private_key: str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+                              operator_address: str = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+                              test_member_address: str = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8") -> None:
+    """
+    Grant operator role, register a test member, update KYC, and verify.
+    """
+    if not chain_folder:
+        log("No deployment folder provided. Skipping Stage 4.")
+        return
+
+    deployment_summary = chain_folder / f"deployment_summary_{TIMESTAMP}.json"
+    if not deployment_summary.exists():
+        log(f"No deployment summary found at {deployment_summary}. Cannot proceed.")
+        return
+
+    with open(deployment_summary, "r", encoding="utf-8") as f:
+        deployed_contracts = json.load(f)
+
+    loan_manager_address = deployed_contracts.get("LoanManager")
+    if not loan_manager_address:
+        log("LoanManager address not found in deployment summary. Skipping Stage 4.")
+        return
+
+    # Operator role hash in Solidity (replace with actual if different)
+    OPERATOR_ROLE_HASH = Web3.keccak(text="OPERATOR_ROLE").hex()
+
+
+
+    # Grant OPERATOR_ROLE to operator_address
+    log(f"Computed OPERATOR_ROLE hash: {OPERATOR_ROLE_HASH}")
+    run_command([
+        "cast", "send", loan_manager_address,
+        "grantRole(bytes32,address)", OPERATOR_ROLE_HASH, operator_address,
+        "--rpc-url", rpc_url,
+        "--private-key", admin_private_key
+    ])
+
+    
+    # Verify OPERATOR_ROLE assignment
+    log(f"Verifying if {operator_address} has OPERATOR_ROLE")
+    code, stdout, _ = run_command([
+        "cast", "call", loan_manager_address,
+        "hasRole(bytes32,address) returns (bool)", OPERATOR_ROLE_HASH, operator_address,
+        "--rpc-url", rpc_url
+    ])
+    log(f"Operator role assigned: {stdout.strip()}")
+
+
+    # Register test member (you may need to adapt the registration function & parameters)
+    log(f"Registering test member {test_member_address}")
+    run_command([
+        "cast", "send", loan_manager_address,
+        "registerMember(address)", test_member_address,
+        "--rpc-url", rpc_url,
+        "--private-key", operator_address
+    ])
+
+    # Update KYC for test member
+    log(f"Updating KYC for {test_member_address} to 1 (verified)")
+    run_command([
+        "cast", "send", loan_manager_address,
+        "updateKyc(address,uint8)", test_member_address, "1",
+        "--rpc-url", rpc_url,
+        "--private-key", operator_address
+    ])
+
+    # Verify isRegistered
+    log(f"Verifying if {test_member_address} is registered")
+    code, stdout, _ = run_command([
+        "cast", "call", loan_manager_address,
+        "isRegistered(address) returns (bool)", test_member_address,
+        "--rpc-url", rpc_url
+    ])
+    log(f"isRegistered: {stdout.strip()}")
+
 # ======================================================================
 # === MAIN PIPELINE ===
 # ======================================================================
@@ -342,7 +423,8 @@ def main():
     ensure_requirements_and_install()
     stage_1_build_and_test()
     stage_2_ensure_anvil()
-    stage_3_deploy_and_capture()
+    chain_folder = stage_3_deploy_and_capture()  # Capture deployment folder
+    stage_4_post_deploy_setup(chain_folder)      # Run post-deploy setup
     log(f"All automation stages completed. Logs stored at: {LOG_FILE}")
 
 if __name__ == "__main__":

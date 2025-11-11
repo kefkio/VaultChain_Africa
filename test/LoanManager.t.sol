@@ -2,156 +2,124 @@
 pragma solidity ^0.8.30;
 
 import "forge-std/Test.sol";
-import "../contracts/loan/LoanManager.sol";
-import "../contracts/core/interfaces/IMembershipModule.sol";
-import "../contracts/membership/Membership_Types.sol";
+import {LoanManager} from "../contracts/loan/LoanManager.sol";
+import {LoanCore} from "../contracts/loan/LoanCore.sol";
+import {LoanLogicFixed} from "../contracts/loan/LoanLogicFixed.sol";
+import {MembershipModule} from "../contracts/membership/MembershipModule.sol";
 
-// -----------------------------
-// Mock Membership Module
-// -----------------------------
-abstract contract MockMembership is IMembershipModule {
-    mapping(address => bool) public members;
-    mapping(address => address) public wallets;
-    mapping(address => uint256) public registeredAtMap;
-    mapping(address => bool) public isActiveMap;
-
-    // Setup a member for tests
-    function setMember(address member, bool active, uint256 registeredAt, address wallet) public {
-        members[member] = true;
-        isActiveMap[member] = active;
-        registeredAtMap[member] = registeredAt;
-        wallets[member] = wallet;
-    }
-
-    // --- IMembershipModule implementation ---
-    function isMember(address user) external view override returns (bool) {
-        return members[user];
-    }
-
-    function getMember(address user)
-        external
-        view
-        override
-        returns (MembershipTypes.Member memory)
-    {
-        return MembershipTypes.Member({
-    name: "",
-    nationalIdHash: 0,
-    passportNumberHash: "",
-    phone: "",
-    email: "",
-    nextOfKinName: "",
-    nextOfKinPhone: "",
-    nextOfKinEmail: "",
-    nextOfKinIdNumber: "",
-    wallet: wallets[user],
-    registeredAt: registeredAtMap[user],
-    isActive: isActiveMap[user],
-    isGuarantor: false,
-    shares: 0,
-    memberType: MembershipTypes.MemberType.REGULAR  // <-- use uppercase
-});
-
-    }
-
-    function getMemberWallet(address user) external view override returns (address) {
-        return wallets[user];
-    }
-
-    // --- Stub implementations for all other functions in IMembershipModule ---
-    function addApprover(address) external override {}
-    function removeApprover(address) external override {}
-    function approveMembership(address, bool) external override {}
-    function submitBiodata(
-        string memory,
-        string memory,
-        string memory,
-        uint256,
-        uint256,
-        string memory,
-        string memory,
-        string memory
-    ) external override {}
-    function updateMemberWallet(address, address) external override {}
-    function walletChangeQuorum() external view override returns (uint256) {
-        return 1;
-    }
-    function isGuarantor(address) external view override returns (bool) {
-        return false;
-    }
-    function getShares(address) external view override returns (uint256) {
-        return 0;
-    }
-    function getTotalDeposits(address) external view override returns (uint256) {
-        return 0;
+// 🧪 Mock Oracle for testing
+contract MockOracle {
+    function getLatestPrice() external pure returns (uint256) {
+        return 1e18; // 1:1 mock price
     }
 }
 
-// -----------------------------
-// Sacco LoanManager Test
-// -----------------------------
-contract SaccoLoanManagerTest is Test {
-    LoanManager public loanManager;
-    MockMembership public membership;
+contract LoanManagerTest is Test {
+    LoanManager loanManager;
+    LoanCore loanCore;
+    LoanLogicFixed loanLogic;
+    MembershipModule membership;
+    MockOracle oracle;
 
-    address public admin = address(0xABCD);
-    address public operator = address(0xDEAD);
-    address public member = address(0xBEEF);
-
-    address[] public operators;
-    address[] public guarantors;
+    address admin;
+    address[] operators;
 
     function setUp() public {
-        // Deploy mock membership
-        membership = new MockMembership();
-        membership.setMember(member, true, block.timestamp - 200 days, member);
+        // Deploy dependencies
+        membership = new MembershipModule();
+        oracle = new MockOracle();
+        loanCore = new LoanCore(address(membership));
+        loanLogic = new LoanLogicFixed(
+            address(loanCore),
+            address(membership),
+            address(oracle)
+        );
 
-        // Set operator
-        operators.push(operator);
+        // Setup admin and operators
+        admin = address(this);
+        operators = new address[](1);
+        operators[0] = admin;
 
-        // Deploy LoanManager
-        loanManager = new LoanManager(admin, operators, address(membership));
-
-        // Register member in LoanManager
-        vm.prank(member);
-        loanManager.registerMember();
-        loanManager.updateKyc(member, LoanManager.KycStatus.Verified);
-
-        // Setup guarantor
-        guarantors.push(address(0xC0DE));
-        membership.setMember(guarantors[0], true, block.timestamp - 200 days, guarantors[0]);
-        loanManager.registerMemberFor(guarantors[0]);
-        loanManager.updateKyc(guarantors[0], LoanManager.KycStatus.Verified);
+        // Deploy and initialize LoanManager
+        loanManager = new LoanManager();
+        loanManager.initialize(
+            address(loanCore),
+            address(loanLogic),
+            address(membership),
+            admin,
+            operators
+        );
     }
 
-    // Example test stubs
-    function testRequestLoan() public {
-        vm.prank(member);
-        uint256 loanId = loanManager.requestLoan(
+    function testLoanManagerInitialized() public {
+        assertTrue(address(loanManager) != address(0), "LoanManager should be deployed");
+    }
+
+    function testCreateLoan() public {
+        address borrower = address(0xBEEF);
+        address tokenAddress = address(0xCAFE);
+
+        address[] memory guarantors = new address[](1);
+        guarantors[0] = address(0xDEAD);
+
+        uint256 loanId = loanManager.createLoan(
+            borrower,
+            LoanCore.PaymentType.Token,
+            tokenAddress,
             1000 ether,
-            LoanManager.PaymentType.Native,
-            address(0),
-            1,
             30 days,
             guarantors
         );
 
-        (
-            address borrower,
-            ,
-            ,
-            uint256 guarantorCount,
-            uint256 amount,
-            ,
-            uint256 duration,
-            ,
-        ) = loanManager.getLoanDetails(loanId);
-
-        assertEq(borrower, member);
-        assertEq(guarantorCount, 1);
-        assertEq(amount, 1000 ether);
-        assertEq(duration, 30 days);
+        assertEq(loanId, 1, "Loan ID should be 1");
+        assertEq(loanManager.getActiveLoanId(borrower), loanId, "Active loan should be set");
     }
 
-    // More tests like testApproveLoan, testDisburseLoan can be added here
+    function testReduceLoanAmount() public {
+        address borrower = address(0xBEEF);
+        address tokenAddress = address(0xCAFE);
+
+        address[] memory guarantors = new address[](1);
+        guarantors[0] = address(0xDEAD);
+
+        uint256 loanId = loanManager.createLoan(
+            borrower,
+            LoanCore.PaymentType.Token,
+            tokenAddress,
+            1000 ether,
+            30 days,
+            guarantors
+        );
+
+        loanLogic.reduceLoanAmount(loanId, 500 ether);
+
+        (, , , uint256 loanAmount, , , , , ) = loanLogic.getLoanDetails(loanId);
+        assertEq(loanAmount, 500 ether, "Loan amount should be reduced");
+    }
+
+function testUpdateLoanStatus() public {
+    address borrower = address(0xBEEF);
+    address tokenAddress = address(0xCAFE);
+
+    address[] memory guarantors = new address[](1);
+    guarantors[0] = address(0xDEAD);
+
+    uint256 loanId = loanManager.createLoan(
+        borrower,
+        LoanCore.PaymentType.Token,
+        tokenAddress,
+        1000 ether,
+        30 days,
+        guarantors
+    );
+
+    loanLogic.updateLoanStatus(loanId, LoanCore.LoanStatus.FullyRepaid);
+
+    uint256 rawStatus;
+    (, , , , , , , rawStatus, ) = loanLogic.getLoanDetails(loanId);
+    LoanCore.LoanStatus status = LoanCore.LoanStatus(rawStatus);
+
+    assertEq(uint8(status), uint8(LoanCore.LoanStatus.FullyRepaid), "Loan status should be updated");
+    assertEq(loanManager.getActiveLoanId(borrower), 0, "Active loan should be cleared");
+}
 }

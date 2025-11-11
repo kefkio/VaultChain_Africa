@@ -3,11 +3,12 @@ pragma solidity ^0.8.30;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../core/interfaces/IMembershipModule.sol";
 import "./LoanCore.sol";
 import "./LoanLogicFixed.sol";
 
-contract LoanManager is AccessControl, Initializable {
+contract LoanManager is AccessControl, Initializable, ReentrancyGuard {
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 
     // -----------------------------
@@ -34,6 +35,7 @@ contract LoanManager is AccessControl, Initializable {
         loanStorage = LoanCore(_loanStorage);
         loanLogic = LoanLogicFixed(payable(_loanLogic));
         membership = IMembershipModule(_membership);
+
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         for (uint i = 0; i < operators.length; i++) {
             _grantRole(OPERATOR_ROLE, operators[i]);
@@ -69,6 +71,29 @@ contract LoanManager is AccessControl, Initializable {
             duration,
             guarantors
         );
+    }
+
+    function createLoan(
+        address borrower,
+        LoanCore.PaymentType paymentType,
+        address tokenAddress,
+        uint256 amount,
+        uint256 duration,
+        address[] memory guarantors
+    ) external nonReentrant onlyRole(OPERATOR_ROLE) returns (uint256) {
+        require(borrower != address(0), "Invalid borrower");
+
+        // Delegate loan creation to loanLogic
+        uint256 loanId = loanLogic.requestLoan(
+            amount,
+            paymentType,
+            tokenAddress,
+            guarantors.length,
+            duration,
+            guarantors
+        );
+
+        return loanId;
     }
 
     function approveLoan(uint256 loanId) external onlyRole(OPERATOR_ROLE) {

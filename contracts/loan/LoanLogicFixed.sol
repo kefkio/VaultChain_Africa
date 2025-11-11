@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../core/interfaces/IMembershipModule.sol";
@@ -18,15 +17,16 @@ contract LoanLogicFixed is ReentrancyGuard {
     IMembershipModule public membership;
 
     // -----------------------------
-    // Roles (used in LoanManager)
+    // Roles
     // -----------------------------
     address public admin;
+    address public loanLogic; // Only callable address
 
     // -----------------------------
-    // Pool balances (per borrower)
+    // Pool balances
     // -----------------------------
     mapping(address => uint256) public poolBalancesEther;
-    mapping(address => mapping(address => uint256)) public poolBalancesToken; // token => (user => amount)
+    mapping(address => mapping(address => uint256)) public poolBalancesToken;
 
     // -----------------------------
     // Events
@@ -37,7 +37,7 @@ contract LoanLogicFixed is ReentrancyGuard {
     event WithdrawnToken(address indexed user, address indexed token, uint256 amount);
 
     // -----------------------------
-    // Initialization
+    // Constructor
     // -----------------------------
     constructor(address _loanCore, address _membership, address _admin) {
         require(_loanCore != address(0), "Invalid LoanCore");
@@ -47,6 +47,16 @@ contract LoanLogicFixed is ReentrancyGuard {
         loanCore = LoanCore(_loanCore);
         membership = IMembershipModule(_membership);
         admin = _admin;
+    }
+
+    function setLoanLogic(address _loanLogic) external {
+        require(loanLogic == address(0), "LoanLogic already set");
+        loanLogic = _loanLogic;
+    }
+
+    modifier onlyLoanLogic() {
+        require(msg.sender == loanLogic, "Only LoanLogic allowed");
+        _;
     }
 
     // -----------------------------
@@ -61,6 +71,11 @@ contract LoanLogicFixed is ReentrancyGuard {
         kycStatus[member] = status;
     }
 
+    function registerMemberFor(address member) external {
+        registeredMembers[member] = true;
+        kycStatus[member] = LoanCore.KycStatus.Pending;
+    }
+
     function getKycStatus(address member) external view returns (LoanCore.KycStatus) {
         return kycStatus[member];
     }
@@ -69,14 +84,28 @@ contract LoanLogicFixed is ReentrancyGuard {
         return registeredMembers[member];
     }
 
-    function registerMemberFor(address member) external {
-        registeredMembers[member] = true;
-        kycStatus[member] = LoanCore.KycStatus.Pending;
-    }
-
     // -----------------------------
     // Loan Operations
     // -----------------------------
+    function createLoan(
+        address borrower,
+        LoanCore.PaymentType paymentType,
+        address tokenAddress,
+        uint256 amount,
+        uint256 duration,
+        address[] memory guarantors
+    ) external onlyLoanLogic returns (uint256) {
+        return loanCore.createLoan(borrower, paymentType, tokenAddress, amount, duration, guarantors);
+    }
+
+    function reduceLoanAmount(uint256 loanId, uint256 amount) external onlyLoanLogic {
+        loanCore.reduceLoanAmount(loanId, amount);
+    }
+
+    function updateLoanStatus(uint256 loanId, LoanCore.LoanStatus newStatus) external onlyLoanLogic {
+        loanCore.updateLoanStatus(loanId, newStatus);
+    }
+
     function requestLoan(
         uint256 amount,
         LoanCore.PaymentType paymentType,
@@ -87,7 +116,6 @@ contract LoanLogicFixed is ReentrancyGuard {
     ) external returns (uint256) {
         require(registeredMembers[msg.sender], "Member not registered");
         require(kycStatus[msg.sender] == LoanCore.KycStatus.Verified, "KYC not verified");
-
         return loanCore.createLoan(msg.sender, paymentType, tokenAddress, amount, duration, guarantors);
     }
 
@@ -97,35 +125,22 @@ contract LoanLogicFixed is ReentrancyGuard {
         loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.Approved);
     }
 
-    /**
-     * Disburse loan into the borrower's pool balance.
-     *
-     * For native (ETH): operator may either send msg.value == loan.loan_amount with the call,
-     * or the contract must already hold sufficient balance (from previous deposits/funding).
-     *
-     * For tokens: operator must approve and call this function; tokens are pulled via safeTransferFrom.
-     */
     function disburseLoan(uint256 loanId) external payable nonReentrant {
         LoanCore.Loan memory loan = loanCore.getLoan(loanId);
         require(loan.status == LoanCore.LoanStatus.Approved, "Loan not approved");
 
-        // Effects: mark as disbursed first
         loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.Disbursed);
 
-        // Interaction: move funds into internal pool accounting
         if (loan.paymentType == LoanCore.PaymentType.Native) {
-            // If operator sent funds with this tx, require exact amount
             if (msg.value > 0) {
                 require(msg.value == loan.loan_amount, "Incorrect ETH sent for disbursement");
                 poolBalancesEther[loan.borrower] += msg.value;
             } else {
-                // Otherwise, ensure contract already has enough ETH to cover disbursement
-                require(address(this).balance >= loan.loan_amount, "Contract has insufficient ETH for disbursement");
+                require(address(this).balance >= loan.loan_amount, "Insufficient ETH");
                 poolBalancesEther[loan.borrower] += loan.loan_amount;
             }
         } else if (loan.paymentType == LoanCore.PaymentType.Token) {
-            // Pull ERC20 tokens from caller into contract and credit pool
-            require(loan.tokenAddress != address(0), "Invalid token address");
+            require(loan.tokenAddress != address(0), "Invalid token");
             IERC20(loan.tokenAddress).safeTransferFrom(msg.sender, address(this), loan.loan_amount);
             poolBalancesToken[loan.tokenAddress][loan.borrower] += loan.loan_amount;
         }
@@ -133,16 +148,12 @@ contract LoanLogicFixed is ReentrancyGuard {
         emit LoanDisbursed(loanId, loan.loan_amount, loan.borrower);
     }
 
-    /**
-     * Repay loan: payment (native or ERC20) is accepted into contract and credited to the borrower's pool.
-     * Excess over outstanding loan balance is credited to the borrower's pool as well.
-     */
     function repayLoan(uint256 loanId, uint256 amount) external payable nonReentrant {
         require(amount > 0, "Invalid amount");
         LoanCore.Loan memory loan = loanCore.getLoan(loanId);
         require(loan.status == LoanCore.LoanStatus.Disbursed, "Loan not active");
 
-        uint256 previousBalance = loan.loan_amount; // outstanding before repay
+        uint256 previousBalance = loan.loan_amount;
         uint256 repayAmount = amount;
         uint256 excess = 0;
 
@@ -151,32 +162,24 @@ contract LoanLogicFixed is ReentrancyGuard {
             repayAmount = previousBalance;
         }
 
-        // Accept funds (native or ERC20) into contract first (Interactions limited to transfers from payer)
         if (loan.paymentType == LoanCore.PaymentType.Native) {
             require(msg.value == amount, "Incorrect ETH sent");
-            // ETH is already held by contract via payable call
-            // credit pool: we'll credit the entire 'amount' (repay + possible excess) below
         } else if (loan.paymentType == LoanCore.PaymentType.Token) {
-            // pull tokens from payer; amount includes any excess
             IERC20(loan.tokenAddress).safeTransferFrom(msg.sender, address(this), amount);
         } else {
             revert("Unsupported payment type");
         }
 
-        // Effects: reduce loan principal first
         if (repayAmount > 0) {
             loanCore.reduceLoanAmount(loanId, repayAmount);
         }
 
-        // If fully repaid, update status and clear active loan entry
         if (repayAmount == previousBalance) {
             loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.FullyRepaid);
         } else {
-            // If partially repaid, leave as Disbursed or set to PartiallyRepaid if you prefer:
             loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.PartiallyRepaid);
         }
 
-        // Interactions: credit entire received amount (repay + excess) to borrower's pool
         if (loan.paymentType == LoanCore.PaymentType.Native) {
             poolBalancesEther[loan.borrower] += amount;
         } else {
@@ -190,27 +193,23 @@ contract LoanLogicFixed is ReentrancyGuard {
         LoanCore.Loan memory loan = loanCore.getLoan(loanId);
         require(block.timestamp > loan.dueDate, "Loan not overdue");
         require(loan.status != LoanCore.LoanStatus.FullyRepaid, "Loan already repaid");
-
         loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.Defaulted);
     }
 
     // -----------------------------
-    // Withdrawals (from user's pool balances)
+    // Withdrawals
     // -----------------------------
     function withdrawEther(uint256 amount) external nonReentrant {
-        require(poolBalancesEther[msg.sender] >= amount, "Insufficient pool balance");
+        require(poolBalancesEther[msg.sender] >= amount, "Insufficient balance");
         poolBalancesEther[msg.sender] -= amount;
-
         (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Ether withdrawal failed");
-
+        require(success, "ETH withdrawal failed");
         emit Withdrawn(msg.sender, amount);
     }
 
     function withdrawToken(address token, uint256 amount) external nonReentrant {
-        require(poolBalancesToken[token][msg.sender] >= amount, "Insufficient token pool balance");
+        require(poolBalancesToken[token][msg.sender] >= amount, "Insufficient token balance");
         poolBalancesToken[token][msg.sender] -= amount;
-
         IERC20(token).safeTransfer(msg.sender, amount);
         emit WithdrawnToken(msg.sender, token, amount);
     }
@@ -251,6 +250,7 @@ contract LoanLogicFixed is ReentrancyGuard {
         return loanCore.activeLoan(borrower);
     }
 
-    // Allow contract to receive ETH (e.g. to fund disbursements)
+    // Allow contract to receive ETH
+
     receive() external payable {}
 }
