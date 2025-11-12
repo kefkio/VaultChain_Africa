@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-// Import modules
-import {MembershipModule} from "../membership/MembershipModule.sol";
+// Import interfaces and modules
+import {IMembershipModule} from "../core/interfaces/IMembershipModule.sol";
+import {WalletManager} from "../WalletManager/WalletManager.sol";
 import {LoanLogicFixed} from "../loan/LoanLogicFixed.sol";
 import {LoanCore} from "../loan/LoanCore.sol";
 import {Marketplace} from "../marketplace/Marketplace.sol";
@@ -10,13 +11,12 @@ import {OracleAggregator} from "../oracle/OracleAggregator.sol";
 import {PoolVaultERC4626} from "../pool/PoolVaultERC4626.sol";
 import {Treasury} from "../treasury/Treasury.sol";
 import {TimelockController} from "../governance/TimelockController.sol";
-import {WalletManager} from "../membership/Wallet_Manager.sol";
 
 /// @title VaultChain - Modular DeFi / Core orchestrator
 /// @notice Central contract that connects all modules
 contract VaultChain {
     // --- Core modules ---
-    MembershipModule public membershipModule;
+    IMembershipModule public membershipModule;
     LoanCore public loanCore;
     LoanLogicFixed public loanLogic;
     WalletManager public walletManager;
@@ -51,7 +51,7 @@ contract VaultChain {
     constructor(
         address _membershipModule,
         address _loanCore,
-        address payable _loanLogic, // <-- changed to payable
+        address payable _loanLogic,
         address _walletManager,
         address _marketplace,
         address _oracleAggregator,
@@ -60,36 +60,36 @@ contract VaultChain {
         address _timelockController
     ) {
         require(_membershipModule != address(0), "Invalid MembershipModule");
-require(_loanCore != address(0), "Invalid LoanCore");
-require(_loanLogic != address(0), "Invalid LoanLogic");
-require(_walletManager != address(0), "Invalid WalletManager");
-require(_marketplace != address(0), "Invalid Marketplace");
-require(_oracleAggregator != address(0), "Invalid OracleAggregator");
-require(_poolVault != address(0), "Invalid PoolVault");
-require(_treasury != address(0), "Invalid Treasury");
-require(_timelockController != address(0), "Invalid TimelockController");
+        require(_loanCore != address(0), "Invalid LoanCore");
+        require(_loanLogic != address(0), "Invalid LoanLogic");
+        require(_walletManager != address(0), "Invalid WalletManager");
+        require(_marketplace != address(0), "Invalid Marketplace");
+        require(_oracleAggregator != address(0), "Invalid OracleAggregator");
+        require(_poolVault != address(0), "Invalid PoolVault");
+        require(_treasury != address(0), "Invalid Treasury");
+        require(_timelockController != address(0), "Invalid TimelockController");
 
-membershipModule = MembershipModule(_membershipModule);
-loanCore = LoanCore(_loanCore);
-loanLogic = LoanLogicFixed(payable(_loanLogic)); // ✅ cast to payable
-walletManager = WalletManager(_walletManager);
-marketplace = Marketplace(_marketplace);
-oracleAggregator = OracleAggregator(_oracleAggregator);
-poolVault = PoolVaultERC4626(_poolVault);
-treasury = Treasury(_treasury);
-timelockController = TimelockController(_timelockController);
+        membershipModule = IMembershipModule(_membershipModule);
+        loanCore = LoanCore(_loanCore);
+        loanLogic = LoanLogicFixed(_loanLogic);
+        walletManager = WalletManager(_walletManager);
+        marketplace = Marketplace(_marketplace);
+        oracleAggregator = OracleAggregator(_oracleAggregator);
+        poolVault = PoolVaultERC4626(_poolVault);
+        treasury = Treasury(_treasury);
+        timelockController = TimelockController(_timelockController);
 
-emit VaultChainDeployed(
-    _membershipModule,
-    _loanCore,
-    _loanLogic,
-    _walletManager,
-    _marketplace,
-    _oracleAggregator,
-    _poolVault,
-    _treasury,
-    _timelockController
-);
+        emit VaultChainDeployed(
+            _membershipModule,
+            _loanCore,
+            _loanLogic,
+            _walletManager,
+            _marketplace,
+            _oracleAggregator,
+            _poolVault,
+            _treasury,
+            _timelockController
+        );
     }
 
     // --- Helper read functions ---

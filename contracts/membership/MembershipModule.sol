@@ -22,6 +22,8 @@ contract MembershipModule {
     mapping(address => uint256) public totalDeposits;
 
     // --- 🔐 WALLET CHANGE WORKFLOW ---
+    uint256 public walletChangeRequestCount;
+    mapping(address => uint256) public walletChangeRequestIds;
     mapping(address => address) public pendingWalletChanges;
     mapping(address => mapping(address => bool)) public walletChangeVotes;
     mapping(address => uint256) public walletChangeVoteCount;
@@ -120,10 +122,13 @@ contract MembershipModule {
         if (!members[msg.sender].isActive) revert MembershipErrors.NotAMember();
         if (newWallet == address(0)) revert MembershipErrors.InvalidWallet();
 
+        walletChangeRequestCount++;
+        walletChangeRequestIds[msg.sender] = walletChangeRequestCount;
+
         pendingWalletChanges[msg.sender] = newWallet;
         walletChangeVoteCount[msg.sender] = 0;
 
-        emit MembershipEvents.WalletChangeRequested(msg.sender, newWallet);
+        emit MembershipEvents.WalletChangeRequested(walletChangeRequestCount, msg.sender, newWallet);
     }
 
     function approveWalletChange(address member) external onlyApprover {
@@ -133,12 +138,15 @@ contract MembershipModule {
         walletChangeVotes[member][msg.sender] = true;
         walletChangeVoteCount[member]++;
 
-        emit MembershipEvents.WalletChangeApproved(member, pendingWalletChanges[member], msg.sender);
+        uint256 requestId = walletChangeRequestIds[member];
+        emit MembershipEvents.WalletChangeApproved(requestId, msg.sender);
 
         if (walletChangeVoteCount[member] >= walletChangeQuorum) {
             members[member].wallet = pendingWalletChanges[member];
             delete pendingWalletChanges[member];
             delete walletChangeVoteCount[member];
+            delete walletChangeRequestIds[member];
+            emit MembershipEvents.WalletChangeExecuted(requestId, member, members[member].wallet);
         }
     }
 

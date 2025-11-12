@@ -26,12 +26,15 @@ contract LoanDisburser is ReentrancyGuard, AccessControl {
         membership = IMembershipModule(membershipContract);
     }
 
-    function disburseLoan(uint256 loanId) external onlyRole(OPERATOR_ROLE) {
+function disburseLoan(uint256 loanId) external onlyRole(OPERATOR_ROLE) nonReentrant {
     LoanCore.Loan memory loan = loanCore.getLoan(loanId);
     require(loan.status == LoanCore.LoanStatus.Approved, "Loan not approved");
 
     address wallet = membership.getMemberWallet(loan.borrower);
     require(wallet != address(0), "Wallet mismatch");
+
+    // ✅ Update status BEFORE external call
+    loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.Disbursed);
 
     if (loan.paymentType == LoanCore.PaymentType.Native) {
         (bool success, ) = wallet.call{value: loan.loan_amount}("");
@@ -40,16 +43,11 @@ contract LoanDisburser is ReentrancyGuard, AccessControl {
         IERC20(loan.tokenAddress).safeTransferFrom(msg.sender, wallet, loan.loan_amount);
     }
 
-    // Use LoanCore function to persist status update
-    loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.Disbursed);
-
     emit LoanDisbursed(loanId);
 }
 
-
-    function repayLoan(uint256 loanId, uint256 amount) external payable nonReentrant {
+function repayLoan(uint256 loanId, uint256 amount) external payable nonReentrant {
     LoanCore.Loan memory loan = loanCore.getLoan(loanId);
-
     require(loan.status == LoanCore.LoanStatus.Disbursed, "Loan not active");
     require(amount > 0, "Invalid amount");
 
@@ -62,8 +60,9 @@ contract LoanDisburser is ReentrancyGuard, AccessControl {
     // Persist repayment
     loanCore.reduceLoanAmount(loanId, amount);
 
-    // Update status if needed
-    if (loan.loan_amount == amount) { // full repayment
+    // ✅ Re-fetch updated loan to check remaining balance
+    LoanCore.Loan memory updatedLoan = loanCore.getLoan(loanId);
+    if (updatedLoan.loan_amount == 0) {
         loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.FullyRepaid);
     } else {
         loanCore.updateLoanStatus(loanId, LoanCore.LoanStatus.PartiallyRepaid);
@@ -71,7 +70,6 @@ contract LoanDisburser is ReentrancyGuard, AccessControl {
 
     emit LoanRepaid(loanId, amount);
 }
-
 
 function markDefault(uint256 loanId) external onlyRole(OPERATOR_ROLE) {
     LoanCore.Loan memory loan = loanCore.getLoan(loanId);

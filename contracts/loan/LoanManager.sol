@@ -8,6 +8,10 @@ import "../core/interfaces/IMembershipModule.sol";
 import "./LoanCore.sol";
 import "./LoanLogicFixed.sol";
 
+
+
+
+
 contract LoanManager is AccessControl, Initializable, ReentrancyGuard {
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 

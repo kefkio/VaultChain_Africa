@@ -1,0 +1,35 @@
+No files changed, compilation skipped
+Script ran successfully.
+
+== Logs ==
+  MembershipModule deployed at: 0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519
+  LoanCore deployed at: 0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496
+  LoanLogicFixed deployed at: 0x34A1D3fff3958843C43aD80F30b94c510645C316
+  LoanManager deployed at: 0x90193C961A926261B756D1E5bb255e67ff9498A1
+  OverrideManager deployed at: 0xBb2180ebd78ce97360503434eD37fcf4a1Df61c3
+  WalletFactory deployed at: 0xDB8cFf278adCCF9E9b5da745B44E754fC4EE3C76
+  FeeManager deployed at: 0x50EEf481cae4250d252Ae577A09bF514f224C6C4
+  Relayer deployed at: 0x62c20Aa1e0272312BC100b4e23B4DC1Ed96dD7D1
+  WalletManager deployed at: 0xDEb1E9a6Be7Baf84208BB6E10aC9F9bbE1D70809
+  VaultChain deployed at: 0xD718d5A27a29FF1cD22403426084bA0d479869a0
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 31337
+
+Estimated gas price: 2.000000001 gwei
+
+Estimated total gas used for script: 11219297
+
+Estimated amount required: 0.022438594011219297 ETH
+
+==========================
+
+Transactions saved to: C:/Users/kefak/Projects/Blockchain+Projects/VaultChainAfrica_v1/broadcast\Deploy.s.sol\31337\run-latest.json
+
+Sensitive values saved to: C:/Users/kefak/Projects/Blockchain+Projects/VaultChainAfrica_v1/cache\Deploy.s.sol\31337\run-latest.json
+
+
+Error: You seem to be using Foundry's default sender. Be sure to set your own --sender.
