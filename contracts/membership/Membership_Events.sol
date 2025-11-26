@@ -7,6 +7,9 @@ library MembershipEvents {
     event DepositMade(address indexed sender, address indexed member, uint256 amount);
     event ApproverAdded(address approver);
     event ApproverRemoved(address approver);
+    event MembershipRevoked(address indexed member, uint256 burnedShares);
+    event DepositsRefunded(address indexed member, uint256 amount);
+    
 
     // Wallet change flow
     event WalletChangeRequested(uint256 requestId, address member, address proposedWallet);

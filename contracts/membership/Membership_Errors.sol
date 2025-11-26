@@ -12,4 +12,11 @@ library MembershipErrors {
     error NoWalletChangeRequest();
     error AlreadyVoted();
     error CannotRemoveAdmin();
+    error InsufficientShares();
+    error DepositFailed();
+    error NoDeposits();
+    error WalletChangeQuorumNotMet();
+    error OverrideRequestNotFound();
+    error CannotOverrideToSameWallet();
+    error RefundFailed();
 }

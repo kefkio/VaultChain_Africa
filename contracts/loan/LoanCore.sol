@@ -1,120 +1,169 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "./LoanTypes.sol";
 
-import "../core/interfaces/IMembershipModule.sol";
+/// @title LoanCore
+/// @notice Stores loans, KYC info, and handles core loan operations
+contract LoanCore is AccessControl {
+    bytes32 public constant CORE_ROLE = keccak256("CORE_ROLE");
+    bytes32 public constant LOGIC_ROLE = keccak256("LOGIC_ROLE");
 
+    uint256 private _nextLoanId = 1;
 
-contract LoanCore {
-    IMembershipModule public membership;
+    // ---------- Storage ----------
+    mapping(uint256 => LoanTypes.Loan) private _loans;        // loanId => Loan
+    mapping(address => LoanTypes.KycStatus) private _kyc;     // member => KYC status
 
-    constructor(address _membership) {
-        require(_membership != address(0), "Invalid membership");
-        membership = IMembershipModule(_membership);
+    // ---------- Events ----------
+    event LoanCreated(uint256 indexed loanId, address indexed borrower);
+    event LoanRepaid(uint256 indexed loanId, uint256 amount, address indexed payer);
+    event LoanStatusUpdated(
+        uint256 indexed loanId,
+        LoanTypes.LoanStatus oldStatus,
+        LoanTypes.LoanStatus newStatus
+    );
+    event KycUpdated(address indexed member, LoanTypes.KycStatus status);
+
+    constructor() {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+
+        // Option 1: admin is also core / logic for now
+        _grantRole(CORE_ROLE, msg.sender);
+        _grantRole(LOGIC_ROLE, msg.sender);
     }
 
-    // -----------------------------
-    // Enums
-    // -----------------------------
-    enum KycStatus { Pending, Verified, Rejected }
-    enum PaymentType { Native, Fiat, Token }
-    enum LoanStatus {
-        Requested,
-        Guaranteed,
-        Approved,
-        Disbursed,
-        PartiallyRepaid,
-        FullyRepaid,
-        Repaid,
-        Defaulted
+    // ---------- Modifiers ----------
+    modifier onlyCore() {
+        // Either CORE_ROLE or LOGIC_ROLE can act as "core"
+        require(
+            hasRole(CORE_ROLE, msg.sender) || hasRole(LOGIC_ROLE, msg.sender),
+            "LoanCore: caller not authorized"
+        );
+        _;
     }
 
-    // -----------------------------
-    // Structs
-    // -----------------------------
-    struct Loan {
-        address borrower;
-        PaymentType paymentType;
-        address tokenAddress;
-        uint256 loan_amount;
-        uint256 interestRate;
-        uint256 duration;
-        uint256 dueDate;
-        LoanStatus status;
-        address[] guarantors;
-    }
-
-    // -----------------------------
-    // Storage
-    // -----------------------------
-    uint256 public loanCounter;
-    mapping(uint256 => Loan) internal loans;
-    mapping(address => uint256) internal activeLoanId;
-
-    // -----------------------------
-    // Events
-    // -----------------------------
-    event LoanCreated(uint256 indexed loanId, address borrower, uint256 amount);
-
-    // -----------------------------
-    // Core Storage Functions
-    // -----------------------------
-
+    // ---------- Loan Functions ----------
     function createLoan(
         address borrower,
-        PaymentType paymentType,
-        address tokenAddress,
         uint256 amount,
         uint256 duration,
-        address[] memory guarantors
-    ) external returns (uint256) {
-        require(amount > 0, "LoanCore: invalid amount");
-        require(duration > 0, "LoanCore: invalid duration");
-        require(activeLoan(borrower) == 0, "LoanCore: active loan exists");
+        uint256 interestRateBps,
+        uint256 borrowerCollateralAmount,
+        address borrowerCollateralToken,
+        LoanTypes.PaymentType paymentType,
+        address tokenAddress,
+        LoanTypes.LoanType loanType
+    ) external onlyCore returns (uint256 loanId) {
+        require(borrower != address(0), "LoanCore: borrower is zero");
+        require(amount > 0, "LoanCore: amount is zero");
+        require(duration > 0, "LoanCore: duration is zero");
 
-        loanCounter++;
-        uint256 loanId = loanCounter;
+        loanId = _nextLoanId++;
 
-        Loan storage loan = loans[loanId];
+        LoanTypes.Loan memory loan;
         loan.borrower = borrower;
-        loan.paymentType = paymentType;
-        loan.tokenAddress = tokenAddress;
-        loan.loan_amount = amount;
+        loan.amount = amount;
         loan.duration = duration;
+        loan.interestRateBps = interestRateBps; // <-- match struct field
+        loan.borrowerCollateralAmount = borrowerCollateralAmount;
+        loan.borrowerCollateralToken = borrowerCollateralToken;
+
+        loan.profile = LoanTypes.LoanProfile({
+            loanType: loanType,
+            paymentType: paymentType,
+            collateralType: borrowerCollateralToken == address(0)
+                ? LoanTypes.CollateralType.Native
+                : LoanTypes.CollateralType.ERC20
+        });
+
+        loan.tokenAddress = tokenAddress;
+        loan.status = LoanTypes.LoanStatus.Requested;
         loan.dueDate = block.timestamp + duration;
-        loan.status = LoanStatus.Requested;
-        loan.guarantors = guarantors;
+        loan.lastInterestUpdate = block.timestamp;
 
-        activeLoanId[borrower] = loanId;
+        _loans[loanId] = loan;
 
-        emit LoanCreated(loanId, borrower, amount);
-        return loanId;
+        emit LoanCreated(loanId, borrower);
     }
-    
 
-    function getLoan(uint256 loanId) external view returns (Loan memory) {
-        return loans[loanId];
+    function getLoan(uint256 loanId) external view returns (LoanTypes.Loan memory) {
+        return _loans[loanId];
     }
-        function reduceLoanAmount(uint256 loanId, uint256 amount) external {
-        Loan storage loan = loans[loanId];
-        require(amount <= loan.loan_amount, "LoanCore: amount exceeds loan balance");
-        loan.loan_amount -= amount;
-        if (loan.loan_amount == 0 && loan.status == LoanStatus.Disbursed) {
-            loan.status = LoanStatus.FullyRepaid;
+
+    function getLoanStatus(uint256 loanId) external view returns (LoanTypes.LoanStatus) {
+        return _loans[loanId].status;
+    }
+
+    function updateLoanStatus(uint256 loanId, LoanTypes.LoanStatus newStatus) external onlyCore {
+        LoanTypes.Loan storage loan = _loans[loanId];
+        LoanTypes.LoanStatus oldStatus = loan.status;
+        loan.status = newStatus;
+        emit LoanStatusUpdated(loanId, oldStatus, newStatus);
+    }
+
+    // ---------- Repayment / Interest ----------
+    function accrueInterest(uint256 loanId) external onlyCore {
+        LoanTypes.Loan storage loan = _loans[loanId];
+        uint256 elapsed = block.timestamp - loan.lastInterestUpdate;
+        if (elapsed > 0) {
+            // interestRateBps is in basis points (e.g. 500 = 5%)
+            uint256 interest = (loan.amount * loan.interestRateBps * elapsed)
+                / (10000 * 365 days);
+            loan.amount += interest;
+            loan.lastInterestUpdate = block.timestamp;
         }
     }
 
-    function updateLoanStatus(uint256 loanId, LoanStatus newStatus) external {
-        loans[loanId].status = newStatus;
-        if (
-            newStatus == LoanStatus.FullyRepaid || 
-            newStatus == LoanStatus.Defaulted
-        ) {
-            activeLoanId[loans[loanId].borrower] = 0;
-        }
+    /// @notice Compact view of loan details (without guarantor count, that lives in LoanGuarantors)
+    function getLoanDetails(uint256 loanId)
+        external
+        view
+        returns (
+            address borrower,
+            LoanTypes.PaymentType paymentType,
+            address tokenAddress,
+            uint256 amount,
+            uint256 interestRateBps,
+            uint256 duration,
+            uint256 dueDate,
+            LoanTypes.LoanStatus status
+        )
+    {
+        LoanTypes.Loan storage loan = _loans[loanId];
+        return (
+            loan.borrower,
+            loan.profile.paymentType,
+            loan.tokenAddress,
+            loan.amount,
+            loan.interestRateBps,
+            loan.duration,
+            loan.dueDate,
+            loan.status
+        );
     }
 
-    function activeLoan(address borrower) public view returns (uint256) {
-        return activeLoanId[borrower];
+    function reduceLoanAmount(uint256 loanId, uint256 amount) external onlyCore {
+        LoanTypes.Loan storage loan = _loans[loanId];
+        require(amount <= loan.amount, "LoanCore: repayment exceeds loan");
+        loan.amount -= amount;
+
+        emit LoanRepaid(loanId, amount, msg.sender);
+    }
+
+    // ---------- KYC ----------
+    function setKycStatus(address member, LoanTypes.KycStatus status) external onlyCore {
+        _kyc[member] = status;
+        emit KycUpdated(member, status);
+    }
+
+    function getKycStatus(address member) external view returns (LoanTypes.KycStatus) {
+        return _kyc[member];
+    }
+
+    // ---------- Borrower Info ----------
+    function getBorrower(uint256 loanId) external view returns (address) {
+        return _loans[loanId].borrower;
     }
 }

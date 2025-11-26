@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-// Import interfaces and modules
 import {IMembershipModule} from "../core/interfaces/IMembershipModule.sol";
-import {WalletManager} from "../WalletManager/WalletManager.sol";
-import {LoanLogicFixed} from "../loan/LoanLogicFixed.sol";
+import {WalletManager} from "../treasury/WalletManager/WalletManager.sol";
 import {LoanCore} from "../loan/LoanCore.sol";
 import {Marketplace} from "../marketplace/Marketplace.sol";
 import {OracleAggregator} from "../oracle/OracleAggregator.sol";
 import {PoolVaultERC4626} from "../pool/PoolVaultERC4626.sol";
 import {Treasury} from "../treasury/Treasury.sol";
 import {TimelockController} from "../governance/TimelockController.sol";
+import {LoanLogic} from "../loan/LoanLogic.sol";
+import {LoanTypes} from "../loan/LoanTypes.sol";
 
-/// @title VaultChain - Modular DeFi / Core orchestrator
-/// @notice Central contract that connects all modules
+/// @title VaultChain
+/// @notice Central orchestrator connecting all modules
 contract VaultChain {
-    // --- Core modules ---
     IMembershipModule public membershipModule;
     LoanCore public loanCore;
-    LoanLogicFixed public loanLogic;
+    LoanLogic public loanLogic;
     WalletManager public walletManager;
     Marketplace public marketplace;
     OracleAggregator public oracleAggregator;
@@ -26,7 +25,6 @@ contract VaultChain {
     Treasury public treasury;
     TimelockController public timelockController;
 
-    /// @notice Event emitted on deployment
     event VaultChainDeployed(
         address membershipModule,
         address loanCore,
@@ -39,19 +37,10 @@ contract VaultChain {
         address timelockController
     );
 
-    /// @param _membershipModule Address of the MembershipModule
-    /// @param _loanCore Address of the LoanCore storage module
-    /// @param _loanLogic Address of the LoanLogicFixed module (payable)
-    /// @param _walletManager Address of the WalletManager module
-    /// @param _marketplace Address of the Marketplace module
-    /// @param _oracleAggregator Address of the OracleAggregator module
-    /// @param _poolVault Address of the PoolVaultERC4626 module
-    /// @param _treasury Address of the Treasury module
-    /// @param _timelockController Address of the TimelockController module
     constructor(
         address _membershipModule,
         address _loanCore,
-        address payable _loanLogic,
+        address _loanLogic,
         address _walletManager,
         address _marketplace,
         address _oracleAggregator,
@@ -71,7 +60,7 @@ contract VaultChain {
 
         membershipModule = IMembershipModule(_membershipModule);
         loanCore = LoanCore(_loanCore);
-        loanLogic = LoanLogicFixed(_loanLogic);
+        loanLogic = LoanLogic(_loanLogic);
         walletManager = WalletManager(_walletManager);
         marketplace = Marketplace(_marketplace);
         oracleAggregator = OracleAggregator(_oracleAggregator);
@@ -92,7 +81,7 @@ contract VaultChain {
         );
     }
 
-    // --- Helper read functions ---
+    // ---------- Helper read functions ----------
 
     function getMemberWallet(address user) external view returns (address) {
         return membershipModule.getMemberWallet(user);
@@ -102,8 +91,9 @@ contract VaultChain {
         return membershipModule.isMember(user);
     }
 
-    function getLoanStatus(uint256 loanId) external view returns (LoanCore.LoanStatus) {
-        (, , , , , , , , LoanCore.LoanStatus status) = loanLogic.getLoanDetails(loanId);
+    /// @notice Get the status of a loan
+    function getLoanStatus(uint256 loanId) external view returns (LoanTypes.LoanStatus) {
+        (, , , , , , , , LoanTypes.LoanStatus status) = loanLogic.getLoanDetails(loanId);
         return status;
     }
 

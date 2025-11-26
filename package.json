@@ -1,5 +1,8 @@
 {
   "dependencies": {
-    "@openzeppelin/contracts": "^5.4.0"
+    "@openzeppelin/contracts": "^5.4.0",
+    "bip39": "^3.1.0",
+    "ethers": "^6.15.0",
+    "scrypt-js": "^3.0.1"
   }
 }

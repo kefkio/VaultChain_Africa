@@ -187,4 +187,32 @@ contract MembershipModule {
     function getMemberWallet(address user) external view returns (address) {
         return members[user].wallet;
     }
+
+    // --- ❌ REVOKE MEMBERSHIP ---
+function revokeMembership(address member) external onlyAdmin {
+    if (!members[member].isActive) revert MembershipErrors.NotAMember();
+
+    // Burn shares and deactivate
+    uint256 burnedShares = members[member].shares;
+    members[member].shares = 0;
+    members[member].isActive = false;
+    members[member].isGuarantor = false;
+
+    emit MembershipEvents.MembershipRevoked(member, burnedShares);
 }
+
+// --- 💸 REFUND DEPOSITS ---
+function refundDeposits(address member) external onlyAdmin returns (uint256 refunded) {
+    uint256 amount = totalDeposits[member];
+    if (amount == 0) revert MembershipErrors.NoDeposits();
+
+    totalDeposits[member] = 0;
+
+    (bool ok, ) = payable(member).call{value: amount}("");
+    if (!ok) revert MembershipErrors.RefundFailed();
+
+    emit MembershipEvents.DepositsRefunded(member, amount);
+    return amount;
+}
+}
+
