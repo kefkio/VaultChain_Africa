@@ -102,9 +102,9 @@ contract LoanManager is AccessControl, Initializable, ReentrancyGuard {
         );
     }
 
-    function repayLoan(uint256 loanId, uint256 amount) external payable nonReentrant {
-        loanLogic.repayLoan{value: msg.value}(loanId, amount, msg.sender);
-    }
+function repayLoan(uint256 loanId, uint256 amount, address _payer) external payable nonReentrant {
+    // handle ETH repayment logic here
+}
 
     // -----------------------------
     // Operator-assisted Loan Operations
